@@ -3,7 +3,7 @@
 *
 * Copyright (c) 2016 Ondrej Sterba <osterba@inbox.com>
 *
-* https://github.com/bezbot/WindowsSerialPort
+* https://github.com/embedded-tools/WindowsSerialPort
 *
 * Permission to use, copy, modify, distribute and sell this software
 * and its documentation for any purpose is hereby granted without fee
