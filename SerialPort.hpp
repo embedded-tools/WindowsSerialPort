@@ -35,7 +35,7 @@ private:
     CRITICAL_SECTION m_criticalSectionRead;
     CRITICAL_SECTION m_criticalSectionWrite;
     
-    int __ReadBuffer(unsigned char* pData, int dataLength);		
+    int __ReadBuffer(unsigned char* pData, int dataLength, int timeOutMS=-1);		
     int __WriteBuffer(const unsigned char* pData, int dataLength);	
     
     
@@ -43,26 +43,25 @@ public:
     TSerialPort();
     ~TSerialPort();
     
-    int GetMaxPacketSize();
     int GetMaxTimeout();
     void* GetDataReceivedHandler();
     void* GetDataSentHandler();
     
-    bool Open(int comPortNumber, int baudRate, int timeoutMS=1000, int maxPacketLength=1024);
+    bool Open(int comPortNumber, int baudRate, int timeoutMS=1000);
     
-    bool OpenAsync(int comPortNumber, int baudRate, 
-        void (*OnDataReceivedHandler)(const unsigned char* pData, int dataLength),
-        void (*OnDataSentHandler)(void),            
-        int timeoutMS=100, int maxPacketLength=1024
-        );
+    bool OpenAsync( int comPortNumber, int baudRate, 
+                    void (*OnDataReceivedHandler)(const unsigned char* pData, int dataLength),
+                    void (*OnDataSentHandler)(void),            
+                    int timeoutMS=100
+                   );
     
     void Close();
     bool IsOpen();
     
-    int ReadBuffer(unsigned char* pData, int dataLength);		
+    int ReadBuffer(unsigned char* pData, int dataLength, int timeOutMS=-1);		
     int WriteBuffer(const unsigned char* pData, int dataLength);	
     
-    int ReadLine(char* pLine, int maxLineLength);
+    int ReadLine(char* pLine, int maxBufferSize, int timeOutMS=-1);
     int WriteLine(char* pLine, bool addCRatEnd=true);
     
     

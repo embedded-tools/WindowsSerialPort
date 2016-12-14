@@ -18,13 +18,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define SERIALPORT_INTERNAL_WINDOWS_TIMEOUT 5
+
 TSerialPort::TSerialPort()
 {
     m_portHandle = NULL;
     m_OnDataReceivedHandler = NULL;	
     m_OnDataSentHandler = NULL;	
     m_timeoutMilliSeconds = 0;
-    m_maxPacketLength = 0;
     m_workingThread = NULL;
     m_workingThreadId = 0;
     InitializeCriticalSection(&m_criticalSectionRead);
@@ -39,11 +40,6 @@ TSerialPort::~TSerialPort()
     }
     DeleteCriticalSection(&m_criticalSectionRead);
     DeleteCriticalSection(&m_criticalSectionWrite);
-}
-
-int TSerialPort::GetMaxPacketSize()
-{
-    return m_maxPacketLength;  
 }
 
 int TSerialPort::GetMaxTimeout()
@@ -61,14 +57,14 @@ void* TSerialPort::GetDataSentHandler()
     return m_OnDataSentHandler;
 }
 
-bool TSerialPort::OpenAsync(int comPortNumber, int baudRate,                             
+bool TSerialPort::OpenAsync(int comPortNumber, 
+                            int baudRate,                             
                             void (*OnDataReceivedHandler)(const unsigned char* pData, int dataLength),
                             void (*OnDataSentHandler)(void),                         
-                            int timeoutMS, int maxPacketLength 
-                            )
-                            
+                            int timeoutMS 
+                            )                            
 {
-    bool result = Open(comPortNumber, baudRate, timeoutMS, maxPacketLength);
+    bool result = Open(comPortNumber, baudRate, timeoutMS);
     if (result)
     {
         m_OnDataReceivedHandler = OnDataReceivedHandler;
@@ -81,7 +77,7 @@ bool TSerialPort::OpenAsync(int comPortNumber, int baudRate,
     return result;
 }
 
-bool TSerialPort::Open(int comPortNumber, int baudRate, int timeoutMS, int maxPacketLength)
+bool TSerialPort::Open(int comPortNumber, int baudRate, int timeoutMS)
 {
     char portName[8];
     int  portNameLength;
@@ -92,8 +88,13 @@ bool TSerialPort::Open(int comPortNumber, int baudRate, int timeoutMS, int maxPa
     portNameLength = sprintf(portName, "COM%i", comPortNumber );
     
     m_portHandle = CreateFile(portName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if ((m_portHandle==0) || ((unsigned long)m_portHandle==0xffffffff))
+    {
+        m_portHandle = 0;
+        return false;
+    }
+
     m_timeoutMilliSeconds = timeoutMS;
-    m_maxPacketLength = maxPacketLength;
     
     DCB portSettings;
     memset(&portSettings, 0, sizeof(portSettings));
@@ -110,7 +111,7 @@ bool TSerialPort::Open(int comPortNumber, int baudRate, int timeoutMS, int maxPa
     
     COMMTIMEOUTS portTimeOuts;                   
     memset(&portTimeOuts, 0, sizeof(portTimeOuts));
-    portTimeOuts.ReadTotalTimeoutConstant = timeoutMS;
+    portTimeOuts.ReadTotalTimeoutConstant = SERIALPORT_INTERNAL_WINDOWS_TIMEOUT;
     portTimeOuts.WriteTotalTimeoutConstant = MAXDWORD;  
     if (!SetCommTimeouts(m_portHandle, &portTimeOuts))
     {
@@ -127,20 +128,8 @@ void TSerialPort::Close()
     {
         CloseHandle(m_portHandle);			
         m_portHandle = NULL;
-        if (m_workingThread)
-        {
-            //wait max. 30 sec for thread termination
-            for(int i =0; i<=300; i++)
-            {
-                Sleep(100);
-                if (!m_workingThread)
-                {
-                    break;
-                }
-            }
-            m_workingThread = NULL;
-            m_workingThreadId = 0;
-        }        
+        m_workingThread = NULL;
+        m_workingThreadId = 0;      
     }
     LeaveCriticalSection(&m_criticalSectionRead);
     LeaveCriticalSection(&m_criticalSectionWrite);
@@ -166,39 +155,56 @@ int TSerialPort::__WriteBuffer(const unsigned char* pData, int dataLength)
     return (int)bytesWritten;   
 }
 
-int TSerialPort::__ReadBuffer(unsigned char* pData, int dataLength)
+int TSerialPort::__ReadBuffer(unsigned char* pData, int dataLength, int timeOutMS)
 {
-    if (m_portHandle==NULL)
+    DWORD bytesRead,bytesReadTotal;
+    int   timeOutCounter, bytesLeft, i;
+
+	if (m_portHandle==NULL)
+	{
+		return 0;
+	}
+    if (timeOutMS==-1)
     {
-        return 0;
+        timeOutMS = m_timeoutMilliSeconds;
     }
     
-    DWORD portState;
-    DWORD bytesRead = 0;
-    
-    BOOL res = ReadFile(m_portHandle, pData, dataLength, &bytesRead, NULL);
-    if ((!res) && (!bytesRead))
+    bytesRead = 0;
+    bytesReadTotal = 0;
+    timeOutCounter = 0;
+    bytesLeft = dataLength;
+
+    if (timeOutMS<40)
     {
-        SetCommMask(m_portHandle, EV_RXCHAR | EV_ERR);
-        WaitCommEvent(m_portHandle, &portState, 0);
-        
-        res = ReadFile(m_portHandle, pData, dataLength, &bytesRead, NULL);
+        Sleep(timeOutMS);
+        ReadFile(m_portHandle, pData, dataLength, &bytesRead, NULL);
+        bytesReadTotal += bytesRead;
+    } else {
+        for(i = 0; i<timeOutMS/SERIALPORT_INTERNAL_WINDOWS_TIMEOUT; i++)
+        {            
+            bytesRead = 0;
+            if (ReadFile(m_portHandle, pData+bytesReadTotal, dataLength, &bytesRead, NULL))
+            {
+                dataLength     -= bytesRead;
+                bytesReadTotal += bytesRead;
+                if (dataLength==0) break;
+            }
+        }
     }
-    if (bytesRead)
+    if (bytesReadTotal)
     {
         if (m_OnDataReceivedHandler)
         {
-            m_OnDataReceivedHandler(pData, bytesRead);
+            m_OnDataReceivedHandler(pData, bytesReadTotal);
         }
     }
-    
-    return bytesRead;
+	return bytesReadTotal;
 }
 
-int TSerialPort::ReadBuffer(unsigned char* pData, int dataLength)
+int TSerialPort::ReadBuffer(unsigned char* pData, int dataLength, int timeOutMS)
 {
     EnterCriticalSection(&m_criticalSectionRead);
-    int result = __ReadBuffer(pData, dataLength);
+    int result = __ReadBuffer(pData, dataLength, timeOutMS);
     LeaveCriticalSection(&m_criticalSectionRead);
     return result;
 }
@@ -249,7 +255,7 @@ int TSerialPort::WriteLine(char* pLine, bool addCRatEnd)
     return result;
 }
 
-int TSerialPort::ReadLine(char* pLine, int maxLineLength)
+int TSerialPort::ReadLine(char* pLine, int maxBufferSize, int timeOutMS)
 {
     if (m_portHandle==NULL)
     {
@@ -261,8 +267,8 @@ int TSerialPort::ReadLine(char* pLine, int maxLineLength)
     }
     
     EnterCriticalSection(&m_criticalSectionRead);
-    int result = __ReadBuffer((unsigned char*)pLine, maxLineLength);	
-    if (result<maxLineLength)
+    int result = __ReadBuffer((unsigned char*)pLine, maxBufferSize-1, timeOutMS);	
+    if (result<maxBufferSize)
     {
         pLine[result] = 0;
     }
@@ -273,15 +279,12 @@ int TSerialPort::ReadLine(char* pLine, int maxLineLength)
 DWORD WINAPI SerialPort_WaitForData( LPVOID lpParam )
 {
     TSerialPort* serialPort = (TSerialPort*)lpParam;
-    int packetSize = serialPort->GetMaxPacketSize();
-    if (packetSize<0) return -1;
-    if (packetSize>0x10000) return -1;
-    int bytesRead = 0;
     
-    unsigned char* buffer = (unsigned char*)malloc(packetSize);
+    static unsigned char packet[64];
+    int packetSize = sizeof(packet);   
     while(serialPort->IsOpen())
     {
-        bytesRead = serialPort->ReadBuffer(buffer, packetSize);
+        serialPort->ReadBuffer(packet, packetSize, SERIALPORT_INTERNAL_WINDOWS_TIMEOUT);
     }    
     return 0;
 }
