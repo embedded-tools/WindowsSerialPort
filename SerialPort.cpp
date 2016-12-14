@@ -14,7 +14,7 @@
 *
 */
 
-#include "SerialPort.h"
+#include "SerialPort.hpp"
 #include <stdio.h>
 #include <stdlib.h>
 
