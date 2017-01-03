@@ -18,7 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define SERIALPORT_INTERNAL_WINDOWS_TIMEOUT 5
+#define SERIALPORT_INTERNAL__TIMEOUT 1
 
 TSerialPort::TSerialPort()
 {
@@ -111,8 +111,10 @@ bool TSerialPort::Open(int comPortNumber, int baudRate, int timeoutMS)
     
     COMMTIMEOUTS portTimeOuts;                   
     memset(&portTimeOuts, 0, sizeof(portTimeOuts));
-    portTimeOuts.ReadTotalTimeoutConstant = SERIALPORT_INTERNAL_WINDOWS_TIMEOUT;
-    portTimeOuts.WriteTotalTimeoutConstant = MAXDWORD;  
+    portTimeOuts.ReadIntervalTimeout = SERIALPORT_INTERNAL_TIMEOUT;
+    portTimeOuts.ReadTotalTimeoutMultiplier = 0;    
+    portTimeOuts.ReadTotalTimeoutConstant = SERIALPORT_INTERNAL_TIMEOUT;    
+
     if (!SetCommTimeouts(m_portHandle, &portTimeOuts))
     {
         return false;
@@ -128,6 +130,7 @@ void TSerialPort::Close()
     {
         CloseHandle(m_portHandle);			
         m_portHandle = NULL;
+        Sleep(SERIALPORT_INTERNAL_TIMEOUT*4);
         m_workingThread = NULL;
         m_workingThreadId = 0;      
     }
@@ -158,37 +161,41 @@ int TSerialPort::__WriteBuffer(const unsigned char* pData, int dataLength)
 int TSerialPort::__ReadBuffer(unsigned char* pData, int dataLength, int timeOutMS)
 {
     DWORD bytesRead,bytesReadTotal;
-    int   timeOutCounter, bytesLeft, i;
+    int   timeOutCounter, bytesLeft;
 
 	if (m_portHandle==NULL)
 	{
 		return 0;
 	}
-    if (timeOutMS==-1)
+    if (timeOutMS<0)
     {
         timeOutMS = m_timeoutMilliSeconds;
     }
     
     bytesRead = 0;
     bytesReadTotal = 0;
-    timeOutCounter = 0;
+    timeOutCounter = timeOutMS;
     bytesLeft = dataLength;
 
-    if (timeOutMS<40)
+    if (timeOutMS<SERIALPORT_INTERNAL_TIMEOUT*2)
     {
         Sleep(timeOutMS);
         ReadFile(m_portHandle, pData, dataLength, &bytesRead, NULL);
         bytesReadTotal += bytesRead;
     } else {
-        for(i = 0; i<timeOutMS/SERIALPORT_INTERNAL_WINDOWS_TIMEOUT; i++)
+        while(timeOutCounter>0)
         {            
             bytesRead = 0;
-            if (ReadFile(m_portHandle, pData+bytesReadTotal, dataLength, &bytesRead, NULL))
+            ReadFile(m_portHandle, pData+bytesReadTotal, dataLength, &bytesRead, NULL);
+            if (bytesRead)
             {
                 dataLength     -= bytesRead;
                 bytesReadTotal += bytesRead;
                 if (dataLength==0) break;
-            }
+                timeOutCounter = timeOutMS;
+            } else {
+                timeOutCounter -= SERIALPORT_INTERNAL_TIMEOUT;
+            }            
         }
     }
     if (bytesReadTotal)
@@ -284,7 +291,7 @@ DWORD WINAPI SerialPort_WaitForData( LPVOID lpParam )
     int packetSize = sizeof(packet);   
     while(serialPort->IsOpen())
     {
-        serialPort->ReadBuffer(packet, packetSize, SERIALPORT_INTERNAL_WINDOWS_TIMEOUT);
+        serialPort->ReadBuffer(packet, packetSize, SERIALPORT_INTERNAL_TIMEOUT);
     }    
     return 0;
 }
