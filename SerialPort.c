@@ -93,7 +93,7 @@ BOOL SerialPort_Open(int comPortNumber, int baudRate, int timeoutMS)
 
 	portNameLength = sprintf(portName, "COM%i", comPortNumber );
 
-	m_portHandle = CreateFile(portName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	m_portHandle = CreateFileA(portName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if ((m_portHandle==0) || ((unsigned long)m_portHandle==0xffffffff))
     {
         m_portHandle = 0;
