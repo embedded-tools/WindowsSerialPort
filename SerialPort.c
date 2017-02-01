@@ -82,7 +82,7 @@ BOOL SerialPort_OpenAsync(int comPortNumber, int baudRate,
 
 BOOL SerialPort_Open(int comPortNumber, int baudRate, int timeoutMS)
 {
-	char portName[8];
+	char portName[12];
 	int  portNameLength;
     DCB  portSettings;
     COMMTIMEOUTS portTimeOuts;
@@ -91,7 +91,7 @@ BOOL SerialPort_Open(int comPortNumber, int baudRate, int timeoutMS)
 	if (comPortNumber>255) return FALSE;
     if (timeoutMS>15000) return FALSE;
 
-	portNameLength = sprintf(portName, "COM%i", comPortNumber );
+	portNameLength = sprintf(portName, "\\\\.\\COM%i", comPortNumber );
 
 	m_portHandle = CreateFileA(portName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if ((m_portHandle==0) || ((unsigned long)m_portHandle==0xffffffff))
